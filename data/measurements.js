@@ -42,27 +42,6 @@ window.MEASUREMENTS_DATA = [
     "raw_data": "1,0,0,1,792,0,2,1791056251,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4070,3770"
   },
   {
-    "id": 5,
-    "timestamp": "2026-10-04 03:23:22",
-    "user_id": 1,
-    "user_name": "User1",
-    "weight_kg": 17.3,
-    "impedance_ohm": null,
-    "impedance_low_ohm": null,
-    "bmi": null,
-    "fat_percent": null,
-    "water_percent": null,
-    "muscle_mass_kg": null,
-    "bone_mass_kg": null,
-    "visceral_fat": null,
-    "bmr_kcal_day": null,
-    "protein_percent": null,
-    "metabolic_age_years": null,
-    "body_type_name": null,
-    "ideal_weight_kg": null,
-    "raw_data": "0,0,0,1,173,0,1,1791055402,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
-  },
-  {
     "id": 2,
     "timestamp": "2026-10-04 02:07:48",
     "user_id": 1,

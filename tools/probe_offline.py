@@ -141,7 +141,10 @@ def describe_plaintext(pt: bytes) -> str:
                                 imp = int(p[31]) / 10 if len(p) > 31 and int(p[31]) > 0 else None
                                 imp_low = int(p[32]) / 10 if len(p) > 32 and int(p[32]) > 0 else None
                                 imp_info = f"阻抗={imp:.1f}Ω / {imp_low:.1f}Ω" if imp else "無阻抗(僅測重)"
-                                recs_parsed.append(f"      ★ [記錄 #{idx_num}] 時間={dt_str} | 體重={weight:.1f}kg | {imp_info}")
+                                if weight < 50.0:
+                                    recs_parsed.append(f"      ⚠️ [記錄 #{idx_num} 誤測忽略] 時間={dt_str} | 體重={weight:.1f}kg (< 50kg 門檻不予保留)")
+                                else:
+                                    recs_parsed.append(f"      ★ [記錄 #{idx_num}] 時間={dt_str} | 體重={weight:.1f}kg | {imp_info}")
                             except Exception as e:
                                 recs_parsed.append(f"      [記錄解析異常]: {e}")
                     details = "\n" + "\n".join(recs_parsed) if recs_parsed else ""
@@ -190,6 +193,12 @@ class Prober:
                     weight = int(p[4]) / 10
                     ts = int(p[7])
                     dt_str = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+
+                    # 過濾誤測數據：小於 50kg 視為碰觸或物品放置，不予保留
+                    if weight < 50.0:
+                        self.log.w(f"   ⚠️ [跳過誤測數據] 體重 {weight:.1f}kg < 50kg 門檻，不予保留")
+                        continue
+
                     imp = int(p[31]) / 10 if len(p) > 31 and int(p[31]) > 0 else None
                     imp_low = int(p[32]) / 10 if len(p) > 32 and int(p[32]) > 0 else None
 

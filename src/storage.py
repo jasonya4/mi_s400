@@ -124,3 +124,25 @@ class StorageManager:
         with open(js_path, "w", encoding="utf-8") as f:
             f.write(f"window.MEASUREMENTS_DATA = {json.dumps(records, ensure_ascii=False, indent=2)};\n")
 
+    def delete_below_weight(self, min_weight_kg: float = 50.0) -> int:
+        """刪除體重低於門檻的誤測紀錄，並同步重寫 CSV 與前端檔案。"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM measurements WHERE weight_kg < ?", (min_weight_kg,))
+            deleted = cursor.rowcount
+            conn.commit()
+
+        if deleted > 0:
+            records = self.get_all_measurements()
+            records_asc = sorted(records, key=lambda x: x["timestamp"])
+            if self.export_csv and records_asc:
+                fieldnames = list(records_asc[0].keys())
+                with open(self.csv_path, mode="w", newline="", encoding="utf-8-sig") as f:
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
+                    writer.writeheader()
+                    for r in records_asc:
+                        writer.writerow(r)
+            self.export_data_files()
+        return deleted
+
+

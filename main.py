@@ -97,6 +97,10 @@ async def record_session(mac: str, bindkey_bytes: bytes, token_bytes: bytes, use
                         print("[警告] 收到無效測量數據。")
                         continue
 
+                    if weight < 50.0:
+                        print(f"\n[忽略誤測] 體重 {weight:.1f} kg 低於 50kg 門檻（判定為物品放置或誤踏），不予記錄。")
+                        continue
+
                     # 比對使用者
                     matched_user = user_mgr.find_user_by_weight(weight)
                     user_name = matched_user.get("name", "Unknown") if matched_user else "訪客/未登錄"
