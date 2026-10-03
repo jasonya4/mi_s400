@@ -34,17 +34,23 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import sqlite3
 import yaml
 from bleak import BleakClient, BleakScanner
 from bleak.exc import BleakBluetoothNotAvailableError, BleakError
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.storage import StorageManager
+from src.user_manager import UserManager
 from xiaomi_s400_live.auth import login, make_notify_hub
 from xiaomi_s400_live.crypto import SessionKeys, decrypt_cmtp, encrypt_for_device
 from xiaomi_s400_live.protocol import (
     AVCTP, AVDTP, CMTP, RCV_OK, RCV_RDY, UPNP, VEND1A, VEND1C,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
 LOG_PATH = ROOT / "data" / "probe_log.txt"
 LISTEN_AFTER_PROBES_SEC = 40
 
@@ -122,19 +128,24 @@ def describe_plaintext(pt: bytes) -> str:
                 elif siid == 8 and iid == 2:
                     out.append(f"  [即時測量完成] piid={piid}: {txt}")
                 elif siid == 9 and iid == 1:
-                    extra = ""
-                    parts = txt.split(",")
-                    if len(parts) >= 8:
-                        try:
-                            w = int(parts[3]) / 10
-                            ts = int(parts[6])
-                            dt_str = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
-                            imp = int(parts[-2]) / 10
-                            imp_low = int(parts[-1]) / 10
-                            extra = f"\n      ★ 成功解析離線數據: 體重={w:.1f}kg | 時間={dt_str} | 阻抗={imp:.1f}Ω / {imp_low:.1f}Ω"
-                        except Exception:
-                            pass
-                    out.append(f"  🎉🎉🎉 [收到離線歷史記錄!] piid={piid}: {txt}{extra}")
+                    recs_parsed = []
+                    for raw_rec in txt.split("_"):
+                        p = raw_rec.split(",")
+                        if len(p) >= 8:
+                            try:
+                                idx_num = int(p[0])
+                                profile = int(p[3])
+                                weight = int(p[4]) / 10
+                                ts = int(p[7])
+                                dt_str = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+                                imp = int(p[31]) / 10 if len(p) > 31 and int(p[31]) > 0 else None
+                                imp_low = int(p[32]) / 10 if len(p) > 32 and int(p[32]) > 0 else None
+                                imp_info = f"阻抗={imp:.1f}Ω / {imp_low:.1f}Ω" if imp else "無阻抗(僅測重)"
+                                recs_parsed.append(f"      ★ [記錄 #{idx_num}] 時間={dt_str} | 體重={weight:.1f}kg | {imp_info}")
+                            except Exception as e:
+                                recs_parsed.append(f"      [記錄解析異常]: {e}")
+                    details = "\n" + "\n".join(recs_parsed) if recs_parsed else ""
+                    out.append(f"  🎉🎉🎉 [成功接收離線歷史資料 (共 {len(recs_parsed)} 筆)!]:{details}")
                 elif siid == 9 and iid == 2:
                     out.append(f"  [離線歷史筆數回報] piid={piid}: {txt}")
                 else:
@@ -146,15 +157,83 @@ def describe_plaintext(pt: bytes) -> str:
 
 
 class Prober:
-    def __init__(self, client: BleakClient, keys: SessionKeys, log: Logger):
+    def __init__(self, client: BleakClient, keys: SessionKeys, log: Logger,
+                 storage: StorageManager | None = None,
+                 user_mgr: UserManager | None = None):
         self.client = client
         self.keys = keys
         self.log = log
+        self.storage = storage
+        self.user_mgr = user_mgr
         self.acks: asyncio.Queue[tuple[str, bytes]] = asyncio.Queue()
         self.app_iter = 0
         self.seq = 1
         self.rx_type: int | None = None
         self.decrypted_count = 0
+
+    def _maybe_save_offline(self, pt: bytes) -> None:
+        if not self.storage or not self.user_mgr or len(pt) < 9:
+            return
+        op, siid, eiid = pt[4], pt[5], pt[6] | (pt[7] << 8)
+        if op == 0x07 and siid == 9 and eiid == 1:
+            idx = pt.find(b"\xa0")
+            if idx < 0:
+                return
+            txt = pt[idx + 1:].decode("ascii", errors="replace").rstrip("\x00").strip()
+            saved_cnt = 0
+            for raw_rec in txt.split("_"):
+                p = raw_rec.split(",")
+                if len(p) < 8:
+                    continue
+                try:
+                    idx_num = int(p[0])
+                    weight = int(p[4]) / 10
+                    ts = int(p[7])
+                    dt_str = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+                    imp = int(p[31]) / 10 if len(p) > 31 and int(p[31]) > 0 else None
+                    imp_low = int(p[32]) / 10 if len(p) > 32 and int(p[32]) > 0 else None
+
+                    # 檢查資料庫防重複
+                    with sqlite3.connect(self.storage.db_path) as conn:
+                        c = conn.cursor()
+                        c.execute("SELECT id FROM measurements WHERE timestamp = ? AND weight_kg = ?", (dt_str, weight))
+                        if c.fetchone():
+                            continue
+
+                    matched_user = self.user_mgr.find_user_by_weight(weight)
+                    user_name = matched_user.get("name") if matched_user else "未登錄"
+                    user_id = matched_user.get("id") if matched_user else None
+
+                    metrics = {}
+                    if matched_user and imp:
+                        metrics = self.user_mgr.calculate_metrics(weight, imp, matched_user, impedance_low=imp_low)
+
+                    rec = {
+                        "timestamp_str": dt_str,
+                        "user_id": user_id,
+                        "user_name": user_name,
+                        "weight_kg": weight,
+                        "impedance_ohm": imp,
+                        "impedance_low_ohm": imp_low,
+                        "bmi": metrics.get("bmi"),
+                        "fat_percent": metrics.get("fat_percent"),
+                        "water_percent": metrics.get("water_percent"),
+                        "muscle_mass_kg": metrics.get("muscle_mass_kg"),
+                        "bone_mass_kg": metrics.get("bone_mass_kg"),
+                        "visceral_fat": metrics.get("visceral_fat"),
+                        "bmr_kcal_day": metrics.get("bmr_kcal_day"),
+                        "protein_percent": metrics.get("protein_percent"),
+                        "metabolic_age_years": metrics.get("metabolic_age_years"),
+                        "body_type_name": metrics.get("body_type_name"),
+                        "ideal_weight_kg": metrics.get("ideal_weight_kg"),
+                        "raw_data": raw_rec
+                    }
+                    self.storage.save_measurement(rec)
+                    saved_cnt += 1
+                except Exception as e:
+                    self.log.w(f"   [儲存離線資料異常]: {e}")
+            if saved_cnt > 0:
+                self.log.w(f"   💾 [自動入庫] 已成功將 {saved_cnt} 筆離線歷史數據寫入資料庫與儀表板！")
 
     # ---------- 接收 (device -> app) ----------
     async def pump(self, uuid: str, q: asyncio.Queue[bytes]) -> None:
@@ -182,6 +261,7 @@ class Prober:
                     else:
                         self.decrypted_count += 1
                         self.log.w(f"<- {name} PLAINTEXT {pt.hex()}\n    {describe_plaintext(pt)}")
+                        self._maybe_save_offline(pt)
                     await self.client.write_gatt_char(uuid, RCV_OK, response=False)
                     expected, buf = 0, b""
                 continue
@@ -280,7 +360,9 @@ async def main() -> None:
     keys = await login(client, token, hub)
     log.w("登入成功 (session keys derived)")
 
-    prober = Prober(client, keys, log)
+    storage = StorageManager()
+    user_mgr = UserManager(cfg.get("users", []))
+    prober = Prober(client, keys, log, storage=storage, user_mgr=user_mgr)
     pumps = [asyncio.create_task(prober.pump(u, hub.queue(u))) for u in (CMTP, VEND1A, VEND1C)]
 
     # 先等 3 秒，收一點秤主動送的幀，順便學到 device 使用的 frame type
