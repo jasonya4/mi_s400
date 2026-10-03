@@ -4,3 +4,4 @@ __pycache__/
 data/*.db
 tools/token_extractor/.git/
 config.yaml
+data/probe_log.txt

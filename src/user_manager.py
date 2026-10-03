@@ -29,8 +29,9 @@ class UserManager:
 
     def calculate_metrics(self, weight_kg: float, impedance_high: float, user_dict: Dict[str, Any], impedance_low: Optional[float] = None) -> Dict[str, Any]:
         """
-        小米 S400 雙頻 BIA (50kHz / 250kHz) 專用臨床校準演算法
-        精準對齊米家 App 官方 DEXA 臨床模型與九大體型評級
+        S400 體組成估算（經驗擬合，非小米官方演算法）
+        以舊開源單頻公式為基礎，再用少量米家 App 數值手動擬合偏移量與係數；
+        內臟脂肪、體質年齡為自訂公式。詳見 PROCESS.md 第 4 節的限制說明。
         """
         h = float(user_dict.get("height_cm", 174))
         a = float(user_dict.get("age", 49))

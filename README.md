@@ -12,6 +12,8 @@ mi_s400/
 ├── config.example.yaml       # 設定檔範本
 ├── run.bat                   # 一鍵啟動常駐監聽服務
 ├── history.bat               # 一鍵查看歷史量測記錄
+├── dashboard.bat             # 一鍵開啟網頁圖表儀表板
+├── probe_offline.bat         # 離線歷史數據試探工具 (方法 A)
 ├── get_token.bat             # 小米雲端 Token / BindKey 提取工具
 ├── main.py                   # 程式入口主流程
 ├── src/
@@ -22,6 +24,7 @@ mi_s400/
 │   ├── measurements.db       # SQLite 資料庫
 │   └── measurements.csv      # CSV 記錄檔
 └── tools/
+    ├── probe_offline.py      # MIoT 離線封包試探程式
     └── token_extractor/      # 開源 Token Extractor
 ```
 
@@ -65,4 +68,4 @@ mi_s400/
    * 採用米家 v2 GATT 認證協定，透過 AVDTP/CMTP 特徵值與體脂計交換隨機 Nonce，以 HKDF-SHA256 衍生會話金鑰（Session Keys），並使用 AES-CCM 解密即時資料流。
 2. **阻抗與生理演算法**：
    * S400 硬體輸出為 50kHz 與 250kHz 雙頻阻抗。
-   * 程式透過逆向米家演算法公式，結合理論瘦體重（LBM）與雙頻抗阻，精準計算出體脂率、肌肉量、內臟脂肪等級、基礎代謝（BMR）與骨量。
+   * 程式透過經驗擬合公式（以開源單頻公式為基底結合 App 數值校正），估算出體脂率、肌肉量、內臟脂肪等級、基礎代謝（BMR）與骨量（僅供趨勢參考，非官方閉源演算法）。
