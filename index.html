@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>小米體脂計 S400 健康數據儀表板</title>
+  <!-- 本地優先，CDN 為備援 -->
+  <script src="js/echarts.min.js"></script>
+  <script>
+    if (typeof echarts === 'undefined') {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"><\/script>');
+    }
+  </script>
+  <!-- 直接載入 JS 資料以防 Chrome file:/// 本地開啟時 CORS 被阻擋 -->
+  <script src="data/measurements.js"></script>
+  <style>
+    :root {
+      --bg-primary: #0f172a;
+      --bg-card: #1e293b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --border-color: #334155;
+      --accent-blue: #3b82f6;
+      --accent-green: #10b981;
+      --accent-orange: #f97316;
+      --accent-purple: #8b5cf6;
+      --accent-red: #ef4444;
+      --accent-cyan: #06b6d4;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Microsoft JhengHei", sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      padding: 20px;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 15px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 25px;
+    }
+
+    .title-group h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #38bdf8;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .title-group p {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-top: 4px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn {
+      background-color: #334155;
+      color: #fff;
+      border: 1px solid var(--border-color);
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.88rem;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn:hover {
+      background-color: #475569;
+    }
+
+    .btn-primary {
+      background-color: var(--accent-blue);
+      border-color: var(--accent-blue);
+    }
+
+    .btn-primary:hover {
+      background-color: #2563eb;
+    }
+
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* 頂部數據摘要卡片 */
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 25px;
+    }
+
+    .summary-card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 16px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .summary-card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+      background: var(--card-accent, var(--accent-blue));
+    }
+
+    .card-label {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .card-value {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin: 6px 0;
+      display: flex;
+      align-items: baseline;
+      gap: 4px;
+    }
+
+    .card-unit {
+      font-size: 0.85rem;
+      font-weight: normal;
+      color: var(--text-muted);
+    }
+
+    .card-badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      background-color: rgba(255, 255, 255, 0.1);
+      color: #cbd5e1;
+    }
+
+    .badge-warning {
+      background-color: rgba(249, 115, 22, 0.2);
+      color: #fdba74;
+    }
+
+    .badge-danger {
+      background-color: rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+    }
+
+    .badge-success {
+      background-color: rgba(16, 185, 129, 0.2);
+      color: #6ee7b7;
+    }
+
+    /* 圖表區塊 */
+    .chart-panel {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 25px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 15px;
+      margin-bottom: 15px;
+    }
+
+    .panel-title {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: #e2e8f0;
+    }
+
+    .pagination-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.9rem;
+    }
+
+    .page-info {
+      color: var(--text-muted);
+      font-size: 0.88rem;
+    }
+
+    #chart-container {
+      width: 100%;
+      height: 480px;
+    }
+
+    /* 表格區塊 */
+    .table-panel {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+    }
+
+    .table-responsive {
+      overflow-x: auto;
+      margin-top: 15px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.9rem;
+    }
+
+    th, td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border-color);
+      white-space: nowrap;
+    }
+
+    th {
+      background-color: rgba(15, 23, 42, 0.6);
+      color: #94a3b8;
+      font-weight: 600;
+    }
+
+    tbody tr:hover {
+      background-color: rgba(255, 255, 255, 0.03);
+    }
+
+    .tag {
+      font-size: 0.75rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: #334155;
+      color: #93c5fd;
+    }
+
+    footer {
+      text-align: center;
+      padding: 30px 0 10px;
+      color: #64748b;
+      font-size: 0.82rem;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <div class="title-group">
+      <h1>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+        </svg>
+        Xiaomi 體脂計 S400 數據分析儀表板
+      </h1>
+      <p>基於藍牙 BLE 雙頻 BIA (50kHz / 250kHz) 逆向解析與本機 SQLite 數據庫</p>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-primary" onclick="reloadData()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-2.19"/>
+        </svg>
+        重新整理數據
+      </button>
+    </div>
+  </header>
+
+  <!-- 最新量測摘要卡片 -->
+  <div class="summary-grid" id="summary-cards">
+    <div class="summary-card" style="--card-accent: #3b82f6;">
+      <div class="card-label">最新體重</div>
+      <div class="card-value" id="card-weight">-- <span class="card-unit">kg</span></div>
+      <div class="card-badge" id="card-time">尚無資料</div>
+    </div>
+    <div class="summary-card" style="--card-accent: #f97316;">
+      <div class="card-label">體脂率</div>
+      <div class="card-value" id="card-fat">-- <span class="card-unit">%</span></div>
+      <div class="card-badge badge-warning" id="card-fat-badge">--</div>
+    </div>
+    <div class="summary-card" style="--card-accent: #10b981;">
+      <div class="card-label">肌肉量</div>
+      <div class="card-value" id="card-muscle">-- <span class="card-unit">kg</span></div>
+      <div class="card-badge badge-success">骨骼肌+平滑肌</div>
+    </div>
+    <div class="summary-card" style="--card-accent: #8b5cf6;">
+      <div class="card-label">身體質量指數 (BMI)</div>
+      <div class="card-value" id="card-bmi">--</div>
+      <div class="card-badge badge-warning" id="card-bmi-badge">--</div>
+    </div>
+    <div class="summary-card" style="--card-accent: #ef4444;">
+      <div class="card-label">內臟脂肪等級</div>
+      <div class="card-value" id="card-visceral">--</div>
+      <div class="card-badge badge-warning" id="card-visceral-badge">--</div>
+    </div>
+    <div class="summary-card" style="--card-accent: #eab308;">
+      <div class="card-label">基礎代謝率 (BMR)</div>
+      <div class="card-value" id="card-bmr">-- <span class="card-unit">kcal</span></div>
+      <div class="card-badge" id="card-body-type">--</div>
+    </div>
+  </div>
+
+  <!-- 折線圖主面板 -->
+  <div class="chart-panel">
+    <div class="panel-header">
+      <div class="panel-title">各項生理指標趨勢折線圖 (一次顯示 25 筆)</div>
+      <div class="pagination-bar">
+        <button class="btn" id="btn-newer" onclick="changePage(-1)" disabled>◀ 較新 25 筆</button>
+        <span class="page-info" id="page-display">第 1 頁 / 共 1 頁</span>
+        <button class="btn" id="btn-older" onclick="changePage(1)" disabled>較舊 25 筆 (Next) ▶</button>
+      </div>
+    </div>
+    <div id="chart-container"></div>
+  </div>
+
+  <!-- 詳細數據記錄表格 -->
+  <div class="table-panel">
+    <div class="panel-header">
+      <div class="panel-title">詳細量測記錄列表 (當前頁面)</div>
+    </div>
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>測量時間</th>
+            <th>姓名</th>
+            <th>體重 (kg)</th>
+            <th>體脂率 (%)</th>
+            <th>肌肉量 (kg)</th>
+            <th>水分率 (%)</th>
+            <th>BMI</th>
+            <th>內臟脂肪</th>
+            <th>基礎代謝</th>
+            <th>代謝年齡</th>
+            <th>身體類型</th>
+            <th>雙頻阻抗 (Ω)</th>
+          </tr>
+        </thead>
+        <tbody id="table-body">
+          <tr><td colspan="12" style="text-align:center; padding: 25px; color: #64748b;">資料載入中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer>
+    Xiaomi S400 Scale BLE Reverse Engineering Project • Local SQLite & GitHub Dashboard
+  </footer>
+</div>
+
+<script>
+  let allRecords = [];
+  const PAGE_SIZE = 25;
+  let currentPage = 1; // 1-indexed (第 1 頁為時間最近的 25 筆)
+  let chartInstance = null;
+
+  // 1. 初始化資料載入
+  async function loadData() {
+    // 優先使用 window.MEASUREMENTS_DATA (直接開啟 html 時不觸發 CORS)
+    if (window.MEASUREMENTS_DATA && Array.isArray(window.MEASUREMENTS_DATA)) {
+      allRecords = window.MEASUREMENTS_DATA;
+      processData();
+      return;
+    }
+
+    // 次選 fetch data/measurements.json (在 GitHub Pages 或本機 HTTP 伺服器運作)
+    try {
+      const resp = await fetch('data/measurements.json?t=' + Date.now());
+      if (resp.ok) {
+        allRecords = await resp.json();
+        processData();
+        return;
+      }
+    } catch (e) {
+      console.warn('Fetch measurements.json failed, checking fallback...', e);
+    }
+
+    document.getElementById('table-body').innerHTML = `
+      <tr>
+        <td colspan="12" style="text-align:center; padding: 30px; color: #f87171;">
+          尚未讀取到資料檔 (data/measurements.json 或 data/measurements.js)。<br>
+          請確認已執行量測並生成 data/ 目錄。
+        </td>
+      </tr>
+    `;
+  }
+
+  function processData() {
+    if (!allRecords || allRecords.length === 0) {
+      document.getElementById('table-body').innerHTML = `
+        <tr><td colspan="12" style="text-align:center; padding: 30px; color: #94a3b8;">資料庫內尚無任何測量記錄</td></tr>
+      `;
+      return;
+    }
+
+    // 依時間排序 (由新到舊)
+    allRecords.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    // 更新頂部卡片 (顯示最新一筆)
+    updateSummaryCards(allRecords[0]);
+
+    // 初始化/更新分頁與圖表
+    renderCurrentPage();
+  }
+
+  function updateSummaryCards(latest) {
+    if (!latest) return;
+    document.getElementById('card-weight').innerHTML = `${Number(latest.weight_kg).toFixed(2)} <span class="card-unit">kg</span>`;
+    document.getElementById('card-time').innerText = latest.timestamp;
+
+    document.getElementById('card-fat').innerHTML = `${Number(latest.fat_percent || 0).toFixed(1)} <span class="card-unit">%</span>`;
+    document.getElementById('card-fat-badge').innerText = (latest.fat_percent > 21 ? '偏高' : '標準');
+
+    document.getElementById('card-muscle').innerHTML = `${Number(latest.muscle_mass_kg || 0).toFixed(1)} <span class="card-unit">kg</span>`;
+    
+    document.getElementById('card-bmi').innerText = Number(latest.bmi || 0).toFixed(1);
+    document.getElementById('card-bmi-badge').innerText = (latest.bmi > 24 ? '偏高' : '標準');
+
+    document.getElementById('card-visceral').innerText = latest.visceral_fat || '--';
+    document.getElementById('card-visceral-badge').innerText = (latest.visceral_fat >= 8 ? '警戒' : '標準');
+
+    document.getElementById('card-bmr').innerHTML = `${latest.bmr_kcal_day || '--'} <span class="card-unit">kcal</span>`;
+    document.getElementById('card-body-type').innerText = latest.body_type_name || '標準';
+  }
+
+  function renderCurrentPage() {
+    const totalRecords = allRecords.length;
+    const totalPages = Math.max(1, Math.ceil(totalRecords / PAGE_SIZE));
+
+    if (currentPage > totalPages) currentPage = totalPages;
+    if (currentPage < 1) currentPage = 1;
+
+    const startIdx = (currentPage - 1) * PAGE_SIZE;
+    const endIdx = Math.min(startIdx + PAGE_SIZE, totalRecords);
+    // 當前 25 筆記錄 (時間從新到舊)
+    const pageRecords = allRecords.slice(startIdx, endIdx);
+
+    // 控制分頁按鈕狀態
+    document.getElementById('btn-newer').disabled = (currentPage === 1);
+    document.getElementById('btn-older').disabled = (currentPage >= totalPages);
+    document.getElementById('page-display').innerText = `第 ${currentPage} 頁 / 共 ${totalPages} 頁 (顯示第 ${startIdx + 1} ~ ${endIdx} 筆，共 ${totalRecords} 筆)`;
+
+    // 渲染圖表 (圖表 X 軸習慣由左至右按時間早→晚呈現，因此反轉陣列)
+    renderChart([...pageRecords].reverse());
+
+    // 渲染表格
+    renderTable(pageRecords);
+  }
+
+  function changePage(delta) {
+    currentPage += delta;
+    renderCurrentPage();
+  }
+
+  function renderChart(records) {
+    const chartDom = document.getElementById('chart-container');
+    if (!chartInstance) {
+      chartInstance = echarts.init(chartDom, 'dark');
+      window.addEventListener('resize', () => chartInstance.resize());
+    }
+
+    const times = records.map(r => r.timestamp);
+    const weightData = records.map(r => r.weight_kg);
+    const fatData = records.map(r => r.fat_percent);
+    const muscleData = records.map(r => r.muscle_mass_kg);
+    const waterData = records.map(r => r.water_percent);
+    const bmiData = records.map(r => r.bmi);
+    const visceralData = records.map(r => r.visceral_fat);
+    const bmrData = records.map(r => r.bmr_kcal_day);
+    const metaAgeData = records.map(r => r.metabolic_age_years);
+
+    const option = {
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: 'rgba(15, 23, 42, 0.95)',
+        borderColor: '#334155',
+        textStyle: { color: '#f8fafc', fontSize: 13 },
+        axisPointer: {
+          type: 'cross',
+          lineStyle: { color: '#475569' }
+        }
+      },
+      legend: {
+        data: ['體重 (kg)', '體脂率 (%)', '肌肉量 (kg)', '水分率 (%)', 'BMI', '內臟脂肪 (級)', '代謝年齡 (歲)', '基礎代謝 (kcal)'],
+        top: 0,
+        textStyle: { color: '#cbd5e1' },
+        selected: {
+          '體重 (kg)': true,
+          '體脂率 (%)': true,
+          '肌肉量 (kg)': true,
+          '水分率 (%)': true,
+          'BMI': true,
+          '內臟脂肪 (級)': true,
+          '代謝年齡 (歲)': false,
+          '基礎代謝 (kcal)': false // 數值較大，預設隱藏以防壓縮主 Y 軸，點擊圖例即可顯示
+        }
+      },
+      grid: {
+        left: '3%',
+        right: '4%',
+        bottom: '8%',
+        top: '12%',
+        containLabel: true
+      },
+      xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: times,
+        axisLine: { lineStyle: { color: '#475569' } },
+        axisLabel: {
+          color: '#94a3b8',
+          formatter: function(val) {
+            return val ? val.replace(' ', '\n') : '';
+          }
+        }
+      },
+      yAxis: [
+        {
+          type: 'value',
+          name: '數值 (kg / % / 級)',
+          position: 'left',
+          axisLine: { lineStyle: { color: '#64748b' } },
+          splitLine: { lineStyle: { color: 'rgba(51, 65, 85, 0.4)' } }
+        },
+        {
+          type: 'value',
+          name: '基礎代謝 (kcal)',
+          position: 'right',
+          splitLine: { show: false },
+          min: 1000,
+          max: 2500,
+          axisLine: { lineStyle: { color: '#eab308' } }
+        }
+      ],
+      series: [
+        {
+          name: '體重 (kg)',
+          type: 'line',
+          smooth: true,
+          data: weightData,
+          color: '#3b82f6',
+          lineStyle: { width: 3 },
+          symbolSize: 8
+        },
+        {
+          name: '體脂率 (%)',
+          type: 'line',
+          smooth: true,
+          data: fatData,
+          color: '#f97316',
+          lineStyle: { width: 3 },
+          symbolSize: 8
+        },
+        {
+          name: '肌肉量 (kg)',
+          type: 'line',
+          smooth: true,
+          data: muscleData,
+          color: '#10b981',
+          lineStyle: { width: 2.5 },
+          symbolSize: 7
+        },
+        {
+          name: '水分率 (%)',
+          type: 'line',
+          smooth: true,
+          data: waterData,
+          color: '#06b6d4',
+          lineStyle: { width: 2 },
+          symbolSize: 6
+        },
+        {
+          name: 'BMI',
+          type: 'line',
+          smooth: true,
+          data: bmiData,
+          color: '#8b5cf6',
+          lineStyle: { width: 2 },
+          symbolSize: 6
+        },
+        {
+          name: '內臟脂肪 (級)',
+          type: 'line',
+          smooth: true,
+          data: visceralData,
+          color: '#ef4444',
+          lineStyle: { width: 2.5 },
+          symbolSize: 7
+        },
+        {
+          name: '代謝年齡 (歲)',
+          type: 'line',
+          smooth: true,
+          data: metaAgeData,
+          color: '#ec4899',
+          lineStyle: { width: 2 },
+          symbolSize: 6
+        },
+        {
+          name: '基礎代謝 (kcal)',
+          type: 'line',
+          yAxisIndex: 1,
+          smooth: true,
+          data: bmrData,
+          color: '#eab308',
+          lineStyle: { width: 2, type: 'dashed' },
+          symbolSize: 6
+        }
+      ]
+    };
+
+    chartInstance.setOption(option);
+  }
+
+  function renderTable(records) {
+    const tbody = document.getElementById('table-body');
+    if (!records || records.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;">無數據</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = records.map(r => `
+      <tr>
+        <td style="font-weight:600; color:#38bdf8;">${r.timestamp}</td>
+        <td>${r.user_name || 'User1'}</td>
+        <td style="color:#60a5fa; font-weight:600;">${Number(r.weight_kg).toFixed(2)}</td>
+        <td style="color:#fb923c; font-weight:600;">${Number(r.fat_percent || 0).toFixed(1)}%</td>
+        <td style="color:#4ade80;">${Number(r.muscle_mass_kg || 0).toFixed(1)}</td>
+        <td style="color:#22d3ee;">${Number(r.water_percent || 0).toFixed(1)}%</td>
+        <td style="color:#c084fc;">${Number(r.bmi || 0).toFixed(1)}</td>
+        <td style="color:#f87171; font-weight:600;">${r.visceral_fat || '--'}</td>
+        <td style="color:#fde047;">${r.bmr_kcal_day || '--'}</td>
+        <td>${r.metabolic_age_years ? r.metabolic_age_years + ' 歲' : '--'}</td>
+        <td><span class="tag">${r.body_type_name || '標準'}</span></td>
+        <td style="font-size:0.8rem; color:#94a3b8;">${r.impedance_ohm || '--'} / ${r.impedance_low_ohm || '--'}</td>
+      </tr>
+    `).join('');
+  }
+
+  function reloadData() {
+    loadData();
+  }
+
+  // 初始載入
+  loadData();
+</script>
+</body>
+</html>

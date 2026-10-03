@@ -1,0 +1,23 @@
+# 小米體脂計 S400 (MJTZC01YM) 設定檔範本
+# 請將此檔案複製為 config.yaml 並填入您的設備與個人資料
+
+device:
+  # 透過 get_token.bat 提取的資訊
+  mac: "00:00:00:00:00:00"          # S400 的藍牙 MAC 地址 (例如 AA:BB:CC:DD:EE:FF)
+  bindkey: "00000000000000000000000000000000" # 32 字元 (16 bytes) 的 BLE 金鑰
+  token: ""                         # 雲端 Token (若使用主動連線時會用到)
+
+# 使用者設定檔（用於計算 BMI、體脂率、肌肉量等雙頻 BIA 數據）
+# 若有多人使用，程式會根據測量到的體重自動比對最接近的使用者
+users:
+  - id: 1
+    name: "User1"
+    gender: "male"                  # 性別: male (男) 或 female (女)
+    height_cm: 174.0                # 身高 (公分)
+    age: 49                         # 年齡 (歲)
+    expected_weight_kg: 79.0        # 參考體重 (用於自動識別使用者，容許誤差約 ±3kg)
+
+storage:
+  database_path: "data/measurements.db" # 本機 SQLite 資料庫路徑
+  export_csv: true                      # 是否同步輸出 CSV
+  csv_path: "data/measurements.csv"
