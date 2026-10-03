@@ -36,6 +36,7 @@ from pathlib import Path
 
 import yaml
 from bleak import BleakClient, BleakScanner
+from bleak.exc import BleakBluetoothNotAvailableError, BleakError
 
 from xiaomi_s400_live.auth import login, make_notify_hub
 from xiaomi_s400_live.crypto import SessionKeys, decrypt_cmtp, encrypt_for_device
@@ -214,7 +215,15 @@ async def main() -> None:
     token = bytes.fromhex(cfg["device"]["token"])
     log = Logger(LOG_PATH)
 
-    client = await connect(mac, log)
+    try:
+        client = await connect(mac, log)
+    except BleakBluetoothNotAvailableError:
+        log.w("❌ 錯誤：電腦的 Windows 藍牙尚未開啟！請在 Windows 設定中打開藍牙後再試。")
+        log.w("   （提醒：關閉藍牙是指關閉『手機』的藍牙，電腦本身的藍牙必須保持『開啟』）")
+        return
+    except Exception as exc:
+        log.w(f"❌ 連線失敗：{exc}")
+        return
     hub = make_notify_hub()
     for uuid in (UPNP, AVDTP, AVCTP, VEND1A, CMTP, VEND1C):
         try:

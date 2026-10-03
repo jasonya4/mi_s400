@@ -119,7 +119,13 @@ LL | ?  | seq   | op | siid | eiid  | nparam | piid  | type<<12 | length  | 值
 ```
 → `siid 8 / event 2 / piid 2` = 線上資料 / 體脂測量過程事件。
 
-試探工具：`probe_offline.bat`（`tools/probe_offline.py`），只送 get_property 與 action（13.1、9.1），記錄所有回傳封包到 `data/probe_log.txt`。action 的 op code（假設 0x05）仍是推測，待實測確認。
+試探工具：`probe_offline.bat`（`tools/probe_offline.py`）：
+* **安全策略**：只送唯讀屬性查詢（`siid 13 / piid 6` 與 `siid 9 / piid 3`）與請求動作（`siid 13 / action 1`、`siid 9 / action 1`），**絕不發送** `siid 9 / action 2`（清空記憶體指令），確保秤內暫存安全。
+* **日誌紀錄**：自動將所有收發與解密後的封包保存至 `data/probe_log.txt`。
+* **執行注意事項**：
+  1. 關閉「手機」藍牙或關閉手機米家 App（防止米家先行連線取走資料）。
+  2. 電腦 Windows 本身的藍牙必須維持「開啟」。
+  3. 雙擊 `probe_offline.bat`，看到搜尋提示後雙腳踩上 S400 喚醒廣播。
 
 ---
 
