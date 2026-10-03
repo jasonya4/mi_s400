@@ -76,28 +76,73 @@ class Logger:
 
 
 def describe_plaintext(pt: bytes) -> str:
-    """盡力解析明文；格式是推測的，解析失敗也會保留原始 hex。"""
+    """解析 MIoT 明文並給予詳細語意說明。"""
     try:
         if len(pt) < 5:
-            return "too short"
+            return f"raw hex: {pt.hex()} (too short)"
         ll, flag, seq, op = pt[0], pt[1], pt[2] | (pt[3] << 8), pt[4]
         out = [f"len={ll}(actual {len(pt)}) flag=0x{flag:02x} seq={seq} "
                f"op=0x{op:02x}({OP_NAMES.get(op, '?')})"]
-        if op in (0x05, 0x06, 0x07) and len(pt) >= 9:
+
+        # 0x01: get_property_rsp
+        if op == 0x01 and len(pt) >= 6:
+            n = pt[5]
+            out.append(f"get_property_rsp: nparam={n}")
+            i = 6
+            for _ in range(n):
+                if i + 4 > len(pt):
+                    break
+                siid = pt[i]
+                piid = pt[i + 1] | (pt[i + 2] << 8)
+                code = pt[i + 3]
+                val = pt[i + 4] if i + 4 < len(pt) else 0
+                if siid == 13 and piid == 6:
+                    out.append(f"  ★ siid 13 (syncinfo) / piid 6 (offline-msg-cnt): status={code} [秤內離線訊息筆數 = {val}]")
+                elif siid == 9 and piid == 3:
+                    out.append(f"  ★ siid 9 (offline-data) / piid 3 (offline-data-count): status={code} [離線資料筆數 = {val}]")
+                else:
+                    out.append(f"  siid={siid} piid={piid} code={code} val={val}")
+                i += 5
+
+        # 0x05 / 0x06 / 0x07: action / action_rsp / event
+        elif op in (0x05, 0x06, 0x07) and len(pt) >= 9:
             siid, iid, n = pt[5], pt[6] | (pt[7] << 8), pt[8]
             out.append(f"siid={siid} iid={iid} nparam={n}")
             i = 9
             for _ in range(n):
+                if i + 4 > len(pt):
+                    break
                 piid = pt[i] | (pt[i + 1] << 8)
                 tl = pt[i + 2] | (pt[i + 3] << 8)
                 typ, ln = tl >> 12, tl & 0x0FFF
                 val = pt[i + 4:i + 4 + ln]
                 txt = val.decode("ascii", "replace") if typ == 0xA else val.hex()
-                out.append(f"  piid={piid} type=0x{typ:x} len={ln} value={txt}")
+                if siid == 8 and iid == 1:
+                    out.append(f"  [即時線上體重] piid={piid}: {txt} kg")
+                elif siid == 8 and iid == 2:
+                    out.append(f"  [即時測量完成] piid={piid}: {txt}")
+                elif siid == 9 and iid == 1:
+                    extra = ""
+                    parts = txt.split(",")
+                    if len(parts) >= 8:
+                        try:
+                            w = int(parts[3]) / 10
+                            ts = int(parts[6])
+                            dt_str = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+                            imp = int(parts[-2]) / 10
+                            imp_low = int(parts[-1]) / 10
+                            extra = f"\n      ★ 成功解析離線數據: 體重={w:.1f}kg | 時間={dt_str} | 阻抗={imp:.1f}Ω / {imp_low:.1f}Ω"
+                        except Exception:
+                            pass
+                    out.append(f"  🎉🎉🎉 [收到離線歷史記錄!] piid={piid}: {txt}{extra}")
+                elif siid == 9 and iid == 2:
+                    out.append(f"  [離線歷史筆數回報] piid={piid}: {txt}")
+                else:
+                    out.append(f"  piid={piid} type=0x{typ:x} len={ln} value={txt}")
                 i += 4 + ln
         return "\n    ".join(out)
     except Exception as exc:  # noqa: BLE001
-        return f"parse error: {exc}"
+        return f"parse error: {exc} raw={pt.hex()}"
 
 
 class Prober:
@@ -242,23 +287,25 @@ async def main() -> None:
     await asyncio.sleep(3)
     log.w(f"device frame type = {prober.rx_type}")
 
-    # 試探清單（全部唯讀／請求類）
+    # 試探清單（經實證：TX 指令傳送通道為 VEND1A，秤端會於 CMTP 進行回應）
     probes = [
-        # get_property? : [op][count]([siid][piid LE16])...
-        ("get_prop 13.6 + 9.3 (offline count)", bytes([0x00, 0x02, 13, 6, 0, 9, 3, 0])),
-        # action? : [op][siid][aiid LE16][nparam]
+        # 1. 查詢秤內離線暫存筆數 (siid 13 / piid 6)
+        ("get_prop 13.6 (offline count)", bytes([0x00, 0x01, 13, 6, 0])),
+        # 2. 請求回報所有離線歷史資料 (siid 9 / action 1, in=[piid 4 = 0])
+        ("action 9.1 request all offline data (with param only_count=0)",
+         bytes([0x05, 9, 1, 0, 1, 4, 0, 1, 0x10, 0])),
+        # 3. 備用測試：action 9.1 (無參數)
+        ("action 9.1 request offline data (no param)", bytes([0x05, 9, 1, 0, 0])),
+        # 4. 連線後同步 (siid 13 / action 1)
         ("action 13.1 sync", bytes([0x05, 13, 1, 0, 0])),
-        ("action 9.1 request offline data", bytes([0x05, 9, 1, 0, 0])),
     ]
 
-    for uuid in (CMTP, VEND1A):
-        for label, body in probes:
-            if not client.is_connected:
-                break
-            await prober.send(label, body, uuid)
-            await asyncio.sleep(3)  # 給秤時間回應
-        if prober.decrypted_count and not client.is_connected:
+    for label, body in probes:
+        if not client.is_connected:
+            log.w("體脂計已斷線")
             break
+        await prober.send(label, body, VEND1A)
+        await asyncio.sleep(2.0)  # 給秤處理與回傳時間
 
     log.w(f"試探送出完畢，持續監聽 {LISTEN_AFTER_PROBES_SEC} 秒 ...")
     for _ in range(LISTEN_AFTER_PROBES_SEC):

@@ -119,13 +119,28 @@ LL | ?  | seq   | op | siid | eiid  | nparam | piid  | type<<12 | length  | 值
 ```
 → `siid 8 / event 2 / piid 2` = 線上資料 / 體脂測量過程事件。
 
-試探工具：`probe_offline.bat`（`tools/probe_offline.py`）：
-* **安全策略**：只送唯讀屬性查詢（`siid 13 / piid 6` 與 `siid 9 / piid 3`）與請求動作（`siid 13 / action 1`、`siid 9 / action 1`），**絕不發送** `siid 9 / action 2`（清空記憶體指令），確保秤內暫存安全。
-* **日誌紀錄**：自動將所有收發與解密後的封包保存至 `data/probe_log.txt`。
-* **執行注意事項**：
-  1. 關閉「手機」藍牙或關閉手機米家 App（防止米家先行連線取走資料）。
-  2. 電腦 Windows 本身的藍牙必須維持「開啟」。
-  3. 雙擊 `probe_offline.bat`，看到搜尋提示後雙腳踩上 S400 喚醒廣播。
+### 實測重大突破（首度成功實現雙向 MIoT 通訊）
+在 2026-10-04 實測中，成功完成主機與 S400 之間的雙向指令交互：
+1. **TX / RX 通道分離架構確立**：
+   * **TX（主機發送控制）**：特徵值 `VEND1A`（`0000001a-...`）。秤端成功回覆 `RCV_RDY`（`00000101`）與 `RCV_OK`（`00000100`）。
+   * **RX（秤端回報監聽）**：特徵值 `CMTP`（`0000001b-...`）。秤端在此通道推送加密封包。
+2. **MIoT OpCode 與解密雙向驗證**：
+   * 主機送出 `op 0x00 (get_property)` 查詢 `siid 13 / piid 6`（離線訊息筆數）。
+   * 秤端成功回傳 `op 0x01 (get_property_rsp)`，解密確認狀態碼 `code=0`（成功），回報目前離線暫存筆數為 `0`！
+3. **官方 MIoT 規格完整解析（`yunmai-ms104:1`）**：
+   * `siid 13 / piid 6 (offline-msg-cnt)`：可讀屬性，回傳秤內累積未同步筆數。
+   * `siid 9 / action 1 (request-offline-data)`：入參 `piid 4 (only-upload-count = 0)`，告知體脂計回傳全部歷史資料。
+   * `siid 9 / event 1 (report-offline-data)`：出參 `piid 1`，格式與線上測量完全相同（80 bytes ASCII CSV 字串）。
+   * `siid 9 / action 2 (end-of-reception)`：**試探腳本嚴格排除此指令**，絕不主動清空秤內資料。
+
+### 離線資料驗證標準測試流程（SOP）
+* **原理**：若量測時電腦或手機已連線，S400 會走線上模式（Online Mode, `siid 8`）即時串流體重，不會寫入離線暫存。必須在「離線無連線」狀態下量測，才會存入 Flash。
+* **測試步驟**：
+  1. 關閉手機藍牙，確保 `run.bat` 與 `probe_offline.bat` 皆處於關閉狀態。
+  2. 裸足踩上 S400 進行完整量測（等候體重與體脂阻抗測試進度條完成）。
+  3. 下秤，等候 5 秒讓 S400 螢幕自然熄滅（此時資料已寫入秤內 Flash 暫存）。
+  4. 電腦開啟 Windows 藍牙，雙擊執行 `probe_offline.bat`。
+  5. 輕踩一下 S400 喚醒廣播，腳本將自動查詢離線筆數（應顯示 $\ge 1$ 筆）並發送 `action 9.1` 抓回歷史數據！
 
 ---
 
